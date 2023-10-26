@@ -50,6 +50,11 @@ struct PCB {
         pid_t pid;
         int startSeconds;
         int startNano;
+        int serviceTimeSeconds;
+        int serviceTimeNano;
+        int eventWaitSec;
+        int eventWaitNano;
+        int blocked;
 };
 
 void displayTable(int i, struct PCB *processTable, FILE *file){
@@ -62,15 +67,15 @@ void displayTable(int i, struct PCB *processTable, FILE *file){
         }
 }
 
-void updateTime(int *sharedTime){
+void updateTime(int *sharedTime){ //Add paramter for value to increase by
         sharedTime[1] = sharedTime[1] + 100000000;
-        if (sharedTime[1] >= 1000000000 ){
+        if (sharedTime[1] >= 1000000000 ){//Change to while
                 sharedTime[0] = sharedTime[0] + 1;
                 sharedTime[1] = sharedTime[1] - 1000000000;
         }
 }
 
-void help(){
+void help(){//Update this
         printf("Program usage\n-h = help\n-n [int] = Num Children to Launch\n-s [int] = Num of children allowed at once\n-t [int] = Max num of seconds for each child to be alive\n-f [filename] = name of file to write log to");
         printf("Default values are -n 5 -s 3 -t 3\nThis Program is designed to take in 4 inputs for Num Processes, Num of processes allowed at once,\nMax num of seconds for each process, and the name of a file to write the log to");
         printf("\nThis program requires a filename to be entered");
@@ -144,11 +149,13 @@ int main(int argc, char** argv) {
         struct PCB processTable[20];
         for (int y = 0; y < 20; y++){
                 processTable[y].occupied = 0;
+                processTable[y].blocked = 0;
         }
         int total = 0;
         int status;
         int i = 0;
         int next = 0;
+
         while(1){
                 seed++;
                 srand(seed);
@@ -210,7 +217,7 @@ int main(int argc, char** argv) {
                 }
                 printf("Message received from Worker %d PID %d at time %d;%d\n", next,processTable[next].pid,sharedTime[0],sharedTime[1]);
                 fprintf(file,"Message received from Worker %d PID %d at time %d;%d\n", next,processTable[next].pid,sharedTime[0],sharedTime[1]);
-                if (receiver.intData == 0){
+                if (receiver.intData == 3){
                         //terminating
                         printf("Worker %d PID %d says it's terminating\n", next,processTable[next].pid);
                         fprintf(file, "Worker %d PID %d says it's terminating\n", next,processTable[next].pid);
@@ -220,16 +227,19 @@ int main(int argc, char** argv) {
                         for(int u = 0; u < proc; u++){
                                 total += processTable[u].occupied;
                         }
-                        if (total == 0){
+                        if (total == 0 && i == proc){
                                 break;
                         }
-                }else if(receiver.intData == 1){
+                }else if(receiver.intData == 2){
                         //not done yet
-                        printf("Worker %d PID %d says it's not done yet\n", next,processTable[next].pid);
+                        printf("Worker %d PID %d says it's not done yet(Used all time)\n", next,processTable[next].pid);
                         fprintf(file, "Worker %d PID %d says it's not done yet\n", next,processTable[next].pid);
-                }else{
+                }else if(receiver.intData == 1){
                         //something bad happened
+                        printf("Process Blocked by event\n");
+                }else{
                         printf("Something weird happened\n");
+                        break;
                 }
                 next++;
                 if (next == 20){
@@ -253,3 +263,4 @@ int main(int argc, char** argv) {
 
         return 0;
 }
+
