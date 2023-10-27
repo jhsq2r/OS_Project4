@@ -16,8 +16,7 @@ typedef struct msgbuffer {
         int intData;
 } msgbuffer;
 
-int randomNum(int seed){
-        srand(seed);
+int randomNum(){
         return (rand() % 100) + 1;
 }
 
@@ -58,14 +57,15 @@ int main(int argc, char** argv){
                 printf("WORKER PID:%d Message received\n",getpid());
 
                 givenTime = receiver.intData;
-                percentChance = randomNum(sharedTime[1] + givenTime + incrementMe);
+                srand(sharedTime[1] + givenTime + incrementMe);
+                percentChance = (rand() % 100) + 1;
                 printf("PercentChance: %d\n", percentChance);
                 if (percentChance <= 5){//Blocked send percent of time used
-                        receiver.intData = 1;
+                        receiver.intData = (rand() % (givenTime - 1)) + 1;
                 }else if (percentChance > 5 && percentChance < 97){//Send all time back
-                        receiver.intData = 2;
+                        receiver.intData = givenTime;
                 }else if (percentChance >= 97 && percentChance <= 100){//Terminate send percent of time back
-                        receiver.intData = 3;
+                        receiver.intData = ((rand() % (givenTime - 1)) + 1) * -1;
                         break;
                 }else{
                         printf("Something went wrong: Random number %d\n", percentChance);
@@ -94,4 +94,3 @@ int main(int argc, char** argv){
         return 0;
 
 }
-
