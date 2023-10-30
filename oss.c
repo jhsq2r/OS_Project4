@@ -72,9 +72,9 @@ void displayTable(int i, struct PCB *processTable, FILE *file){
         }
 }
 
-void help(){//Update this
-        printf("Program usage\n-h = help\n-n [int] = Num Children to Launch\n-s [int] = Num of children allowed at once\n-t [int] = Max num of seconds for each child to be alive\n-f [filename] = name of file to write log to");
-        printf("Default values are -n 5 -s 3 -t 3\nThis Program is designed to take in 4 inputs for Num Processes, Num of processes allowed at once,\nMax num of seconds for each process, and the name of a file to write the log to");
+void help(){
+        printf("Program usage\n-h = help\n-n [int] = Num Children to Launch\n-s [int] = Num of children allowed at once\n-t [int] = How frequently a process can be launched in nanoseconds\n-f [filename] = name of file to write log to");
+        printf("Default values are -n 5 -s 3 -t 50000000\nThis Program is designed to take in 4 inputs for Num Processes, Num of processes allowed at once,\nNum of nanoseconds between each launch, and the name of a file to write the log to");
         printf("\nThis program requires a filename to be entered");
 }
 
@@ -169,22 +169,17 @@ int main(int argc, char** argv) {
         float highestPriority = 1.5;
         int highestPriorityIndex = 0;
         int numBlocked = 0;
+        int lowestWaitIndex = 0;
+        int totalEventWaitSec = 0;
+        long long totalEventWaitNano = 0;
+        int numTimesBlocked = 0;
+        int temp = 0;
 
         while(1){
                 seed++;
                 srand(seed);
 
-                if (totalLaunched != 0){
-                        if (totalInSystem == 0){
-                                //printf("SharedTime before %d:%d\n",sharedTime[0], sharedTime[1]);
-                                sharedTime[1] += maxTime;
-                                if(sharedTime[1] >= 1000000000){
-                                        sharedTime[0] += 1;
-                                        sharedTime[1] -= 1000000000;
-                                }
-                                //printf("SharedTime After %d:%d\n", sharedTime[0],sharedTime[1]);
-                        }
-
+                if (totalLaunched != 0){//see if worker can be launched
                         if (nextLaunchTime[0] < sharedTime[0]){
                                 canLaunch = 1;
                         }else if (nextLaunchTime[0] == sharedTime[0] && nextLaunchTime[1] <= sharedTime[1]){
@@ -192,8 +187,14 @@ int main(int argc, char** argv) {
                         }else{
                                 canLaunch = 0;
                         }
+                        if(canLaunch == 0 && totalInSystem == 0){
+                                sharedTime[0] = nextLaunchTime[0];
+                                sharedTime[1] = nextLaunchTime[1];
+                                timeTrack = 500000000;
+                                canLaunch = 1;
+                        }
                 }
-                //printf("Can Launch: %d\n", canLaunch);
+                //launch worker if
                 if((totalInSystem < simul && canLaunch == 1 && totalLaunched < proc) || totalLaunched == 0){
 
                         nextLaunchTime[1] = sharedTime[1] + maxTime;
@@ -202,7 +203,6 @@ int main(int argc, char** argv) {
                                 nextLaunchTime[0] = nextLaunchTime[0] + 1;
                                 nextLaunchTime[1] = nextLaunchTime[1] - 1000000000;
                         }
-                        //printf("Next Launch Time: %d:%d\n", nextLaunchTime[0], nextLaunchTime[1]);
 
                         pid_t child_pid = fork();
                         if(child_pid == 0){
@@ -216,18 +216,18 @@ int main(int argc, char** argv) {
                                 processTable[totalLaunched].pid = child_pid;
                                 processTable[totalLaunched].startSeconds = sharedTime[0];
                                 processTable[totalLaunched].startNano = sharedTime[1];
-                                printf("Generating process with PID %d and putting it in ready queue 0 at time %d:%d\n",child_pid,sharedTime[0],sharedTime[1]);
-                                fprintf(file,"Generating process with PID %d and putting it in ready queue 0 at time %d:%d\n",child_pid,sharedTime[0],sharedTime[1]);
+                                printf("Generating process with PID %d and putting it in ready queue at time %d:%d\n",child_pid,sharedTime[0],sharedTime[1]);
+                                fprintf(file,"Generating process with PID %d and putting it in ready queue at time %d:%d\n",child_pid,sharedTime[0],sharedTime[1]);
                         }
                         totalLaunched++;
                 }
-                //Add to time here
+                //Add to time
                 sharedTime[1] += 10000;
-                //updateTime(sharedTime, 10000);
                 timeTrack += 10000;
 
                 //Check if blocked proceccess can be unblocked
                 numBlocked = 0;
+                lowestWaitIndex = -1;
                 for(int y = 0; y < proc; y++){
                         if (processTable[y].blocked == 1){
                                 if (sharedTime[0] > processTable[y].eventWaitSec || (sharedTime[0] == processTable[y].eventWaitSec && sharedTime[1] > processTable[y].eventWaitNano)){
@@ -238,33 +238,37 @@ int main(int argc, char** argv) {
                                         fprintf(file,"Removing prcoess with PID %d from blocked queue, adding to ready queue\n",processTable[y].pid);
                                 }else{
                                         numBlocked++;
-                                        if(numBlocked == totalInSystem){
-                                                processTable[y].eventWaitSec = 0;
-                                                processTable[y].eventWaitNano = 0;
-                                                processTable[y].blocked = 0;
-                                                printf("All processes blocked, removing process with PID %d from blocked queue, adding to ready queue\n",processTable[y].pid);
-                                                fprintf(file,"All processes blocked, removing process with PID %d from blocked queue, adding to ready queue\n",processTable[y].pid);
+                                        if(lowestWaitIndex == -1){
+                                                lowestWaitIndex = y;
+                                        }else{
+                                                if(processTable[y].eventWaitSec < processTable[lowestWaitIndex].eventWaitSec || (processTable[y].eventWaitSec == processTable[lowestWaitIndex].eventWaitSec && processTable[y].eventWaitNano < processTable[lowestWaitIndex].eventWaitNano)){
+                                                        lowestWaitIndex = y;//calculate the blocked process with the closest wait time
+                                                }
+                                        }
+                                        if(numBlocked == simul){//if all blocked, unblock the process with the closest event time
+                                                sharedTime[0] = processTable[lowestWaitIndex].eventWaitSec;
+                                                sharedTime[1] = processTable[lowestWaitIndex].eventWaitNano;
+                                                timeTrack = 500000000;
+                                                processTable[lowestWaitIndex].eventWaitSec = 0;
+                                                processTable[lowestWaitIndex].eventWaitNano = 0;
+                                                processTable[lowestWaitIndex].blocked = 0;
+                                                printf("All processes blocked, removing process with PID %d from blocked queue, adding to ready queue\n",processTable[lowestWaitIndex].pid);
+                                                fprintf(file,"All processes blocked, removing process with PID %d from blocked queue, adding to ready queue\n",processTable[lowestWaitIndex].pid);
                                         }
                                 }
                         }
                 }
-                //Add to time here
+                //Add to time
                 sharedTime[1] += 15000;
-                //updateTime(sharedTime, 15000);
                 timeTrack += 15000;
 
                 //Calculate priority of ready workers, assign winners index to next, output priority array
-                //printf("currentTimeNano: %d * 1B + %d\n", sharedTime[0], sharedTime[1]);
                 currentTimeNano = ((long)sharedTime[0]*1000000000) + sharedTime[1];
                 priorityArrayPosition = 0;
-                for(int z = 0; z < proc; z++){
+                for(int z = 0; z < proc; z++){//calculate priority of ready workers
                         if (processTable[z].occupied == 1 && processTable[z].blocked == 0){
-                                //printf("%ld - %d * 1B + %d\n",currentTimeNano,processTable[z].startSeconds,processTable[z].startNano);
                                 timeInSystem = currentTimeNano - (((long)processTable[z].startSeconds * 1000000000) + processTable[z].startNano);
-                                //printf("Time in System: %ld\n", timeInSystem);
-                                //printf("%d * 1B + %d\n",processTable[z].serviceTimeSeconds,processTable[z].serviceTimeNano);
                                 timeInService = ((long)processTable[z].serviceTimeSeconds * 1000000000) + processTable[z].serviceTimeNano;
-                                //printf("Time in Service: %ld\n", timeInService);
                                 if (timeInService == 0){
                                         priorityArray[priorityArrayPosition].value = 0.0;
                                 }else{
@@ -282,9 +286,9 @@ int main(int argc, char** argv) {
                 highestPriorityIndex = 0;
                 printf("Ready queue priorities: ");
                 fprintf(file,"Ready queue priorities: ");
-                for(int i = 0; i < priorityArrayPosition; i++){
+                for(int i = 0; i < priorityArrayPosition; i++){//display priority list
                         printf("%.2f ",priorityArray[i].value);
-                        fprintf(file,"%.2f",priorityArray[i].value);
+                        fprintf(file,"%.2f ",priorityArray[i].value);
                         if (priorityArray[i].value < highestPriority){
                                 highestPriority = priorityArray[i].value;
                                 highestPriorityIndex = i;
@@ -294,50 +298,42 @@ int main(int argc, char** argv) {
                 fprintf(file,"\n");
                 for(int j = 0; j < proc; j++){
                         if (processTable[j].pid == priorityArray[highestPriorityIndex].pid){
-                                next = j;
+                                next = j;//assign next worker index
                                 break;
                         }
                 }
-                //Add to time here
+                //Add to time
                 sharedTime[1] += 15000;
-                //updateTime(sharedTime, 15000);
                 timeTrack += 15000;
+
                 printf("Dispatching process with PID %d priority %.2f from ready queue at time %d:%d\n",priorityArray[highestPriorityIndex].pid,priorityArray[highestPriorityIndex].value,sharedTime[0],sharedTime[1]);
                 fprintf(file,"Dispatching process with PID %d priority %.2f from ready queue at time %d:%d\n",priorityArray[highestPriorityIndex].pid,priorityArray[highestPriorityIndex].value,sharedTime[0],sharedTime[1]);
                 printf("Total time this dispatch was %d nanoseconds\n", 15000);
                 fprintf(file,"Total time this dispatch was %d nanoseconds\n", 15000);
-                //send message to priority worker and log
+                //send message to priority worker
                 messenger.mtype = processTable[next].pid;
                 messenger.intData = 50000000;
                 if (msgsnd(msqid, &messenger, sizeof(msgbuffer)-sizeof(long), 0) == -1) {
                         perror("msgsnd to child 1 failed\n");
                         exit(1);
                 }
+
+                //Add to time
                 sharedTime[1] += 10000;
-                //updateTime(sharedTime, 10000);
                 timeTrack += 10000;
 
-                //Log that message sent
-                //printf("Message sent to Worker %d PID %d at time %d;%d\n", next,processTable[next].pid,sharedTime[0],sharedTime[1]);
-                //fprintf(file, "Message sent to Worker %d PID %d at time %d;%d\n", next,processTable[next].pid,sharedTime[0],sharedTime[1]);
-
-                //wait for response and log it
+                //wait for response
                 if (msgrcv(msqid, &receiver, sizeof(msgbuffer), getpid(),0) == -1) {
                         perror("failed to receive message in parent\n");
                         exit(1);
                 }
-                //printf("Message received from Worker %d PID %d at time %d;%d\n", next,processTable[next].pid,sharedTime[0],sharedTime[1]);
-                //fprintf(file,"Message received from Worker %d PID %d at time %d;%d\n", next,processTable[next].pid,sharedTime[0],sharedTime[1]);
 
                 //Responses
                 if (receiver.intData < 0){
                         //terminating
-                        //printf("Worker %d PID %d says it's terminating\n", next,processTable[next].pid);
-                        //fprintf(file, "Worker %d PID %d says it's terminating\n", next,processTable[next].pid);
                         waitpid(processTable[next].pid, &status, 0);
                         processTable[next].occupied = 0;
                         sharedTime[1] += (receiver.intData * -1);
-                        //updateTime(sharedTime, 25000000);
                         timeTrack += (receiver.intData * -1);
                         processTable[next].serviceTimeNano += (receiver.intData * -1);
                         if(processTable[next].serviceTimeNano >= 1000000000){
@@ -350,17 +346,12 @@ int main(int argc, char** argv) {
                         }
                         printf("Receiving that process with PID %d ran for %d nanoseconds and is terminating\n",processTable[next].pid,(receiver.intData * -1));
                         fprintf(file,"Receiving that process with PID %d ran for %d nanoseconds and is terminating\n",processTable[next].pid,(receiver.intData * -1));
-                        //printf("1Total In System: %d\n",totalInSystem);
                         if(totalInSystem == 0 && totalLaunched == proc){
                                 break;
                         }
-
                 }else if(receiver.intData == 50000000){
                         //not done but used full time
-                        //printf("Worker %d PID %d says it's not done yet(Used all time)\n", next,processTable[next].pid);
-                        //fprintf(file, "Worker %d PID %d says it's not done yet\n", next,processTable[next].pid);
                         sharedTime[1] += 50000000;
-                        //updateTime(sharedTime, 50000000);
                         timeTrack += 50000000;
                         processTable[next].serviceTimeNano += 50000000;
                         if(processTable[next].serviceTimeNano >= 1000000000){
@@ -373,9 +364,7 @@ int main(int argc, char** argv) {
                         fprintf(file,"Putting process with PID %d into ready queue\n",processTable[next].pid);
                 }else if(receiver.intData < 50000000 && receiver.intData > 0){
                         //blocked by event
-                        //printf("Process Blocked by event\n");
                         sharedTime[1] += receiver.intData;
-                        //updateTime(sharedTime, 25000000);
                         timeTrack += receiver.intData;
                         printf("Receiving that process with PID %d ran for %d nanoseconds: did not use entire time quantum\n",processTable[next].pid,receiver.intData);
                         fprintf(file,"Receiving that process with PID %d ran for %d nanoseconds: did not use entire time quantum\n",processTable[next].pid,receiver.intData);
@@ -386,18 +375,22 @@ int main(int argc, char** argv) {
                                 processTable[next].serviceTimeSeconds += 1;
                                 processTable[next].serviceTimeNano -= 1000000000;
                         }
-                        processTable[next].eventWaitSec = (rand() % 2) + sharedTime[0];
-                        processTable[next].eventWaitNano = ((rand() % (999999999 - 1 + 1)) + 1) + sharedTime[1];
+                        temp = (rand() % 2);
+                        totalEventWaitSec += temp;//assign random wait times
+                        processTable[next].eventWaitSec = temp + sharedTime[0];
+                        temp = ((rand() % (999999999 - 1 + 1)) + 1);
+                        totalEventWaitNano += temp;
+                        processTable[next].eventWaitNano = temp + sharedTime[1];
                         if(processTable[next].eventWaitNano >= 1000000000){
                                 processTable[next].eventWaitSec += 1;
                                 processTable[next].eventWaitNano -= 1000000000;
                         }
                         processTable[next].blocked = 1;
+                        numTimesBlocked++;
                 }else{
                         printf("Something weird happened\n");
                         break;
                 }
-                //printf("DATA RECEIVED FROM LAST MESSAGE: %d\n", receiver.intData);
 
                 if(sharedTime[1] >= 1000000000){
                         sharedTime[0] += 1;
@@ -413,11 +406,42 @@ int main(int argc, char** argv) {
                 for (int x = 0; x < proc; x++){
                         totalInSystem += processTable[x].occupied;
                 }
-                //printf("2Total In System: %d\n", totalInSystem);
 
         }
 
         displayTable(proc, processTable, file);
+        //Simulation report
+        float cpuUsage = 0.0;
+        int serviceSumSec = 0;
+        long serviceSumNano = 0;
+        long long serviceNanoTotal = 0;
+        long long clockNanoTotal = 0;
+        float clockSecTotal = 0.0;
+        for (int x = 0; x < proc; x++){
+                serviceSumSec += processTable[x].serviceTimeSeconds;
+                serviceSumNano += processTable[x].serviceTimeNano;
+        }
+        serviceNanoTotal = ((long long)serviceSumSec*1000000000)+serviceSumNano;
+        clockNanoTotal = ((long long)sharedTime[0]*1000000000)+sharedTime[1];
+        cpuUsage = (float)serviceNanoTotal/clockNanoTotal;
+        printf("Simulation Report: \n");
+        printf("Total time: %0.5f seconds\n",clockSecTotal = (double)clockNanoTotal/1000000000);
+        printf("Working time: %0.5f seconds\n",(double)serviceNanoTotal/1000000000);
+        printf("Idle time: %0.5f seconds\n", (double)(clockNanoTotal-serviceNanoTotal)/1000000000);
+        printf("CPU usage: %0.5f\n",cpuUsage);
+        printf("Throughput: %0.5f processes per second\n", (double)proc/clockSecTotal);
+        fprintf(file,"Simulation Report: \n");
+        fprintf(file,"Total time: %0.5f seconds\n",clockSecTotal = (double)clockNanoTotal/1000000000);
+        fprintf(file,"Working time: %0.5f seconds\n",(double)serviceNanoTotal/1000000000);
+        fprintf(file,"Idle time: %0.5f seconds\n", (double)(clockNanoTotal-serviceNanoTotal)/1000000000);
+        fprintf(file,"CPU usage: %0.5f\n",cpuUsage);
+        fprintf(file,"Throughput: %0.5f processes per second\n", (double)proc/clockSecTotal);
+        totalEventWaitNano = ((long long)totalEventWaitSec*1000000000)+totalEventWaitNano;
+        if(numTimesBlocked > 0){
+                printf("Average event block time: %0.5f seconds\n",(double)(totalEventWaitNano/numTimesBlocked)/1000000000);
+                fprintf(file,"Average event block time: %0.5f seconds\n",(double)(totalEventWaitNano/numTimesBlocked)/1000000000);
+        }
+
 
         shmdt(sharedTime);
         shmctl(shmid,IPC_RMID,NULL);
