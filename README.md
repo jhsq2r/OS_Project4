@@ -1,17 +1,14 @@
-# OS_Project4
+This program is designed to take in 3 integers and 1 file name in this format:
+-n [int] -s [int] -t [int] -f [filename]
+-n is the number of processes to launch
+-s is the number of processes to run at once
+-t is the time-frequency in nanoseconds that a process will launch
+-f is the name of the file to output the log
+Default values: -n 5 -s 3 -t 50000000
+THERE MUST BE A FILENAME ENTERED FOR THIS PROGRAM TO WORK
+-n can not be more than 20
+Example: ./oss -n 6 -s 5 -t 50000000 -f log.txt
+This program will use its own internal clock, message queues, and scheduler to launch and manage processes. It will schedule workers "process time" dependent on its priority thats calculated by the scheduler.
+When all n processes have finished, it will output a report on the OS simulation.
 
-Notes:
-1. Determine if we should launch a child 1000 nano
-  if (totalInsystem < s && totallaunched < numToLaunch) then launch a worker
-2. Check if a blocked process should be changed to ready 2000 nano
-   for x in processTable, if system clock is greater than eventwait, unblock
-3. Calculate priorities of ready(running) processes 2000 nano
-   for x in processTable, if occupied calculate ratio, add ratio to array
-4. Schedule a process by sending it a message 1000 nano
-   find lowest value in ratio list, send message to that child process
-5. Receive a message back and update appropriate structures
-   update system clock accordingly
-   if intData == timesent, update timeinsysstem in PCB
-   if intData == someNum, update timeinSystem, blocked, eventtimes, in pcb
-   if intData == someNegNum, update timeinsystem, occupied, in pcb
-7. Output PCB to screen and log every half second 
+Git Repos: https://github.com/jhsq2r/OS_Project4
